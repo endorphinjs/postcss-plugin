@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "diagnostics": false,
+    "sourceMap": true,
+    "noUnusedLocals": true,
+    "alwaysStrict": true,
+    "noImplicitThis": true,
+    "module": "CommonJS",
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationDir": "./dist",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["./dist"]
+}

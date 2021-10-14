@@ -1,0 +1,36 @@
+{
+  "name": "@endorphinjs/postcss-plugin",
+  "version": "1.0.0",
+  "description": "PostCSS plugin for CSS scoping",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "mocha",
+    "prepare": "npm run test && npm run build"
+  },
+  "keywords": ["postcss", "endorphin"],
+  "author": "Sergey Chikuyonok <serge.che@gmail.com>",
+  "license": "ISC",
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^13.0.5",
+    "@rollup/plugin-typescript": "^8.2.5",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.9.6",
+    "@typescript-eslint/eslint-plugin": "^4.31.2",
+    "@typescript-eslint/parser": "^4.31.2",
+    "eslint": "^7.32.0",
+    "mocha": "^9.1.1",
+    "postcss": "^8.3.7",
+    "rollup": "^2.57.0",
+    "ts-node": "^10.2.1",
+    "typescript": "^4.4.3"
+  },
+  "dependencies": {
+    "postcss-selector-parser": "^6.0.6"
+  },
+  "mocha": {
+    "require": "ts-node/register",
+    "spec": "./test/*.ts"
+  }
+}
