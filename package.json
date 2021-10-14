@@ -1,6 +1,6 @@
 {
   "name": "@endorphinjs/postcss-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "PostCSS plugin for CSS scoping",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
