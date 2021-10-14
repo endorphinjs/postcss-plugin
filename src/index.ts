@@ -1,13 +1,18 @@
 import selParser from 'postcss-selector-parser';
 import type { Selector, Attribute, Pseudo, Node } from 'postcss-selector-parser';
-import type { Plugin, AtRule, ChildNode, Container } from 'postcss';
+import type { Plugin, AtRule, ChildNode, Container, Root } from 'postcss';
 
 type Diff<T, U> = T extends U ? never : T;
 type SelectorChild = Diff<Node, Selector>;
 
+export type GetScope = (root: Root) => string | undefined;
+
 const processed = Symbol('processed');
 
-export default function createPlugin(scope: string): Plugin {
+export default function createPlugin(getScope: GetScope | string): Plugin {
+    const animations = new Set<string>();
+    let scope: string | undefined;
+
     const selProcessor = selParser(root => {
         root.each(sel => {
             rewriteRefs(sel, scope);
@@ -15,17 +20,25 @@ export default function createPlugin(scope: string): Plugin {
         });
     });
 
-    const animations = new Set<string>();
+    const shouldSkip = <T>(node: T) => {
+        if (!scope || node[processed]) {
+            return true;
+        }
+
+        markProcessed(node);
+        return false;
+    };
 
     return {
         postcssPlugin: 'endorphin',
-        Root(root) {
-            if (root[processed]) {
+        Once(root) {
+            animations.clear();
+            scope = typeof getScope === 'function' ? getScope(root) : getScope;
+
+            if (!scope)  {
                 return;
             }
 
-            markProcessed(root);
-            animations.clear();
             root.walkAtRules(atrule => {
                 if (isRewriteableKeyframe(atrule)) {
                     animations.add(atrule.params);
@@ -33,11 +46,10 @@ export default function createPlugin(scope: string): Plugin {
             });
         },
         AtRuleExit(atrule) {
-            if (atrule[processed]) {
+            if (shouldSkip(atrule)) {
                 return;
             }
 
-            markProcessed(atrule);
             const mediaScope = getMediaScope(atrule);
             if (mediaScope) {
                 if (mediaScope === atrule.params) {
@@ -56,11 +68,9 @@ export default function createPlugin(scope: string): Plugin {
             }
         },
         Rule(rule) {
-            if (rule[processed]) {
+            if (shouldSkip(rule)) {
                 return;
             }
-
-            markProcessed(rule);
 
             if (rule.parent) {
                 if (isKeyframe(rule.parent)) {
@@ -80,11 +90,10 @@ export default function createPlugin(scope: string): Plugin {
             rule.selector = selProcessor.processSync(rule.selector);
         },
         Declaration(decl) {
-            if (decl[processed]) {
+            if (shouldSkip(decl)) {
                 return;
             }
 
-            markProcessed(decl);
             const name = cssName(decl.prop);
             if (name === 'animation-name' && animations.has(decl.value)) {
                 decl.value = concat(decl.value, scope);
