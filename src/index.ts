@@ -7,16 +7,25 @@ type SelectorChild = Diff<Node, Selector>;
 
 export type GetScope = (root: Root) => string | undefined;
 
-const processed = Symbol('processed');
+export interface Options {
+    scope?: string | GetScope;
+    scopeClass?: boolean | RegExp;
+}
 
-export default function createPlugin(getScope: GetScope | string): Plugin {
+const processed = Symbol('processed');
+const ignoreClassScopingPseudo = new Set([':host', ':host-context', '::slotted', '::global', '::local']);
+
+export default function createPlugin(opt: GetScope | string | Options): Plugin {
     const animations = new Set<string>();
     let scope: string | undefined;
+    const options: Options = typeof opt === 'string' || typeof opt === 'function'
+        ? { scope: opt }
+        : opt;
 
     const selProcessor = selParser(root => {
         root.each(sel => {
             rewriteRefs(sel, scope);
-            rewriteSlotted(sel, scope) || rewriteSelector(sel, scope);
+            rewriteSlotted(sel, scope) || rewriteSelector(sel, scope, options.scopeClass);
         });
     });
 
@@ -33,7 +42,7 @@ export default function createPlugin(getScope: GetScope | string): Plugin {
         postcssPlugin: 'endorphin',
         Once(root) {
             animations.clear();
-            scope = typeof getScope === 'function' ? getScope(root) : getScope;
+            scope = typeof options.scope === 'function' ? options.scope(root) : options.scope;
 
             if (!scope)  {
                 return;
@@ -111,9 +120,14 @@ createPlugin.postcss = true;
 /**
  * Scopes given CSS selector
  */
-function rewriteSelector(sel: Selector, scope: string) {
+function rewriteSelector(sel: Selector, scope: string, scopeClass?: boolean | RegExp) {
     // To properly scope CSS selector, we have to rewrite fist and last part of it.
     // E.g. in `.foo .bar. > .baz` we have to scope `.foo` and `.baz` only
+
+    if (scopeClass) {
+        scopeClassNames(sel, scope, scopeClass instanceof RegExp ? scopeClass : undefined);
+    }
+
     const parts = getCompound(sel);
     const specialPseudo = ['::global', '::local'];
     const localGlobal: Pseudo[] = [];
@@ -125,6 +139,7 @@ function rewriteSelector(sel: Selector, scope: string) {
 
         return true;
     });
+
     const first = scopable.shift();
     const last = scopable.pop();
 
@@ -310,4 +325,26 @@ function cssName(propName: string): string {
 
 function isRewriteableKeyframe(atrule: AtRule): boolean {
     return isKeyframe(atrule) && (!atrule.parent || getMediaScope(atrule.parent) !== 'global');
+}
+
+
+function scopeClassNames(sel: Selector, scope: string, ignore?: RegExp) {
+    for (const node of sel.nodes) {
+        if (node.type === 'class') {
+            if (ignore?.test(node.value)) {
+                continue;
+            }
+
+            const suffix = `_${scope}`;
+            if (!node.value.endsWith(suffix)) {
+                node.value += suffix;
+            }
+        } else if (node.type === 'pseudo' && !ignoreClassScopingPseudo.has(node.value)) {
+            for (const child of node.nodes) {
+                if (child.type === 'selector') {
+                    scopeClassNames(child, scope, ignore);
+                }
+            }
+        }
+    }
 }

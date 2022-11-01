@@ -60,19 +60,3 @@ typings/
 
 # next.js build output
 .next
-
-.rpt2_cache
-
-/runtime
-
-/helpers/*.js
-/helpers/*.js.map
-/helpers/*.d.ts
-
-/compiler/*.js
-/compiler/*.js.map
-/compiler/*.d.ts
-
-/transitions/*.js
-/transitions/*.js.map
-/transitions/*.d.ts
