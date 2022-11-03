@@ -24,7 +24,9 @@ describe('Rewrite selector', () => {
     it('scope class names', () => {
         const opt: Options = {
             scope: 'abc321',
-            scopeClass: /^js-/
+            classScope: {
+                exclude: /^js-/
+            }
         };
 
         let result = run(`#a { padding: 1px; }\n.foo.bar > .baz.bam + .bem, #foo.bar { display: block }`, opt);
@@ -37,5 +39,14 @@ describe('Rewrite selector', () => {
         const input = read('./fixtures/input.css');
         result = run(input, opt);
         strictEqual(result, read('./fixtures/output-scoped.css'));
+    });
+
+    it('scope global rules', () => {
+        const input = read('./fixtures/class-scope.css')
+        const result = run(input, {
+            scope: 'abc',
+            classScope: { suffix: '-mod' }
+        });
+        strictEqual(result, read('./fixtures/class-scope-output.css'));
     });
 });

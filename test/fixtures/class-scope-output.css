@@ -1,0 +1,33 @@
+[abc-host].foo-mod.bar-mod,[abc-host].foo.bar {
+    position: absolute;
+}
+
+.foo-mod > .bar-mod [abc-host],.foo > .bar [abc-host] {
+    width: 50px;
+}
+
+[abc-host] .foo-local-mod,[abc-host] .foo-local,
+    [abc-host] .bar-local-mod,
+    [abc-host] .bar-local {
+    padding: 10px;
+}
+
+[abc-host] p.local-mod,[abc-host] p.local {
+    color: #000;
+}
+
+[abc-host] .foo-mod .bar-mod > .baz-mod,[abc-host] .foo .bar > .baz {
+    padding: 10px;
+}
+
+[abc-host] div:not(.foo-mod.bar-mod),[abc-host] div:not(.foo.bar) {
+    color: red;
+}
+
+[abc-host] .a-mod:not(.foo-mod.bar-mod) .b-mod:not(.foo-mod.bar-mod),[abc-host] .a:not(.foo.bar) .b:not(.foo.bar) {
+    color: green;
+}
+
+[abc-host] .collapse-mod:hover ~ msg-call-participant .wrap-mod.__video-mod .info-mod msg-name,[abc-host] .collapse:hover ~ msg-call-participant .wrap.__video .info msg-name {
+    opacity: 1;
+}

@@ -1,0 +1,34 @@
+:host(.foo.bar) {
+    position: absolute;
+}
+
+:host-context(.foo > .bar) {
+    width: 50px;
+}
+
+@media local {
+    .foo-local,
+    .bar-local {
+        padding: 10px;
+    }
+
+    p.local {
+        color: #000;
+    }
+
+    .foo .bar > .baz {
+        padding: 10px;
+    }
+
+    div:not(.foo.bar) {
+        color: red;
+    }
+
+    .a:not(.foo.bar) .b:not(.foo.bar) {
+        color: green;
+    }
+
+    .collapse:hover ~ msg-call-participant .wrap.__video .info msg-name {
+        opacity: 1;
+    }
+}

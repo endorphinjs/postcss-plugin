@@ -1,15 +1,36 @@
 import selParser from 'postcss-selector-parser';
-import type { Selector, Attribute, Pseudo, Node } from 'postcss-selector-parser';
-import type { Plugin, AtRule, ChildNode, Container, Root } from 'postcss';
+import type { Selector, Attribute, Pseudo, Node, Container } from 'postcss-selector-parser';
+import type { Plugin, AtRule, ChildNode, Root, Rule, Container as PostCSSContainer } from 'postcss';
 
 type Diff<T, U> = T extends U ? never : T;
 type SelectorChild = Diff<Node, Selector>;
 
 export type GetScope = (root: Root) => string | undefined;
 
+export interface ClassScopeOptions {
+    /** Scope prefix to add to class names */
+    prefix?: string;
+
+    /** Scope suffix to add to class names */
+    suffix?: string;
+
+    /** Apply scoping to class names that match given regexp */
+    include?: RegExp;
+
+    /** Do not apply scoping to class names that match given regexp */
+    exclude?: RegExp;
+
+    /**
+     * If `prefix` or `suffix` is given, create all possible combinations of selector.
+     * Note that the amount of produced selectors is about N², where N is the amount
+     * of class names in selector.
+     * */
+    full?: boolean;
+}
+
 export interface Options {
     scope?: string | GetScope;
-    scopeClass?: boolean | RegExp;
+    classScope?: boolean | ClassScopeOptions;
 }
 
 const processed = Symbol('processed');
@@ -23,9 +44,25 @@ export default function createPlugin(opt: GetScope | string | Options): Plugin {
         : opt;
 
     const selProcessor = selParser(root => {
-        root.each(sel => {
+        const handleSelector = (sel: Selector) => {
             rewriteRefs(sel, scope);
-            rewriteSlotted(sel, scope) || rewriteSelector(sel, scope, options.scopeClass);
+            rewriteSlotted(sel, scope) || rewriteSelector(sel, scope);
+            return sel;
+        }
+
+        root.each(sel => {
+            if (options.classScope) {
+                const classScope = getClassScopeOptions(scope, options.classScope);
+                if (isGlobalClassScope(options.classScope)) {
+                    for (const selCopy of scopeClassNamesInContainer(sel, classScope)) {
+                        root.insertBefore(sel, handleSelector(selCopy));
+                    }
+                } else {
+                    scopeClassNames(sel, classScope);
+                }
+            }
+
+            handleSelector(sel);
         });
     });
 
@@ -92,6 +129,10 @@ export default function createPlugin(opt: GetScope | string | Options): Plugin {
                         rule.selectors = rule.selectors.map(sel => `[${scope}-host] ${sel}`);
                     }
 
+                    if (isGlobalClassScope(options.classScope) && (mediaScope === 'local' || mediaScope === 'global')) {
+                        scopeClassNamesInRule(rule, options.classScope);
+                    }
+
                     return;
                 }
             }
@@ -120,14 +161,9 @@ createPlugin.postcss = true;
 /**
  * Scopes given CSS selector
  */
-function rewriteSelector(sel: Selector, scope: string, scopeClass?: boolean | RegExp) {
+function rewriteSelector(sel: Selector, scope: string) {
     // To properly scope CSS selector, we have to rewrite fist and last part of it.
     // E.g. in `.foo .bar. > .baz` we have to scope `.foo` and `.baz` only
-
-    if (scopeClass) {
-        scopeClassNames(sel, scope, scopeClass instanceof RegExp ? scopeClass : undefined);
-    }
-
     const parts = getCompound(sel);
     const specialPseudo = ['::global', '::local'];
     const localGlobal: Pseudo[] = [];
@@ -297,11 +333,11 @@ function markProcessed<T>(item: T | T[]) {
     }
 }
 
-function isKeyframe(node: Container<ChildNode>): node is AtRule {
+function isKeyframe(node: PostCSSContainer<ChildNode>): node is AtRule {
     return node.type === 'atrule' && cssName((node as AtRule).name) === 'keyframes';
 }
 
-function getMediaScope(node: Container<ChildNode>): string  | undefined {
+function getMediaScope(node: PostCSSContainer<ChildNode>): string  | undefined {
     if (node.type === 'atrule') {
         const m = (node as AtRule).params.match(/\b(local|global)\b/);
         return m?.[1];
@@ -327,24 +363,120 @@ function isRewriteableKeyframe(atrule: AtRule): boolean {
     return isKeyframe(atrule) && (!atrule.parent || getMediaScope(atrule.parent) !== 'global');
 }
 
-
-function scopeClassNames(sel: Selector, scope: string, ignore?: RegExp) {
-    for (const node of sel.nodes) {
-        if (node.type === 'class') {
-            if (ignore?.test(node.value)) {
-                continue;
-            }
-
-            const suffix = `_${scope}`;
-            if (!node.value.endsWith(suffix)) {
-                node.value += suffix;
-            }
-        } else if (node.type === 'pseudo' && !ignoreClassScopingPseudo.has(node.value)) {
-            for (const child of node.nodes) {
-                if (child.type === 'selector') {
-                    scopeClassNames(child, scope, ignore);
+function scopeClassNames<T extends Container>(sel: T, options: ClassScopeOptions, force?: boolean): T {
+    if (options.prefix || options.suffix) {
+        for (const node of sel.nodes) {
+            if (shouldScopeNode(node, options)) {
+                scopeValue(node, options);
+            } else if ('nodes' in node && (force || !isIgnoredPseudo(node))) {
+                for (const child of node.nodes) {
+                    scopeClassNames(child as T, options);
                 }
             }
         }
+    }
+
+    return sel;
+}
+
+function scopeClassNamesInContainer<T extends Container>(container: T, options: ClassScopeOptions): T[] {
+    if (!options.full) {
+        // No need to create every possible combination of selector.
+        // But we should check whether should be rewritten at all.
+        let shouldUpdate = false;
+        container.walkClasses(node => {
+            if (shouldScopeNode(node, options)) {
+                shouldUpdate = true;
+                return false;
+            }
+        });
+
+        if (!shouldUpdate) {
+            return [];
+        }
+
+        const copy = container.clone({}) as T;
+        return [scopeClassNames(copy, options, true)];
+    }
+
+    const toUpdate: T[] = [container];
+    container.nodes.forEach((node, i) => {
+        if (shouldScopeNode(node, options)) {
+            for (let sel of toUpdate.slice()) {
+                sel = sel.clone({}) as T;
+                scopeValue(sel.at(i), options);
+                toUpdate.push(sel);
+            }
+        } else if (node.type === 'pseudo') {
+            // Pseudo-class may contain multiple Selectors
+            node.nodes.forEach((pseudoSel, j) => {
+                for (let sel of toUpdate.slice()) {
+                    for (const u of scopeClassNamesInContainer(pseudoSel, options)) {
+                        sel = sel.clone({}) as T;
+                        const targetPseudo = sel.at(i) as T;
+                        targetPseudo.at(j).replaceWith(u);
+                        toUpdate.push(sel);
+                    }
+                }
+            });
+        }
+    });
+
+    return toUpdate.slice(1);
+}
+
+function scopeClassNamesInRule(rule: Rule, options: ClassScopeOptions) {
+    const selProcessor = selParser(root => {
+        root.each(sel => {
+            for (const updated of scopeClassNamesInContainer(sel, options)) {
+                root.insertBefore(sel, updated);
+            }
+        });
+    });
+
+    selProcessor.processSync(rule, { updateSelector: true });
+}
+
+function scopeValue<T extends Node>(node: T, options: ClassScopeOptions) {
+    if (shouldScopeNode(node, options)) {
+        node.value = `${options.prefix || ''}${node.value}${options.suffix || ''}`;
+    }
+
+    return node;
+}
+
+function isIgnoredPseudo(node: Node): boolean {
+    return node.type === 'pseudo' && ignoreClassScopingPseudo.has(node.value);
+}
+
+function shouldScopeNode(node: Node, options: ClassScopeOptions) {
+    if (node.type !== 'class') {
+        return false;
+    }
+    const { include, exclude } = options;
+    const { value } = node;
+    return !exclude?.test(value) && (!include || include.test(value));
+}
+
+function isGlobalClassScope(options: boolean | ClassScopeOptions): options is ClassScopeOptions {
+    if (options && typeof options !== 'boolean') {
+        return !!options.suffix || !!options.prefix;
+    }
+
+    return false;
+}
+
+function getClassScopeOptions(scope: string, classScope: boolean | ClassScopeOptions): ClassScopeOptions | undefined {
+    if (classScope) {
+        const opt: ClassScopeOptions = {};
+        if (typeof classScope !== 'boolean') {
+            Object.assign(opt, classScope);
+        }
+
+        if (!opt.prefix && !opt.suffix && scope) {
+            opt.suffix = `_${scope}`;
+        }
+
+        return opt;
     }
 }
